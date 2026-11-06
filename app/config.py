@@ -34,10 +34,12 @@ class Settings(BaseSettings):
 
     @property
     def sqlalchemy_database_url(self) -> str:
-        """將 postgres:// 轉為 SQLAlchemy 2.0 支援的 postgresql://"""
+        """將 postgres:// 或 postgresql:// 明確轉為 psycopg2 驅動 (postgresql+psycopg2://)"""
         url = self.database_url
         if url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql://", 1)
+            url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+        elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
+            url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
         return url
 
 
