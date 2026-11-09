@@ -45,6 +45,17 @@ def build_preview_image_url(original_url: str) -> str:
     return original_url
 
 
+def build_attachment_download_url(original_url: str) -> str:
+    """
+    為 Cloudinary PDF/檔案網址加上 fl_attachment 參數，確保手機端（iOS Safari/Chrome）
+    與 Google Drive 能正確強制當作二進位 PDF 下載，避免快取錯誤或解析異常。
+    """
+    if "res.cloudinary.com" in original_url and "/upload/" in original_url:
+        if "fl_attachment" not in original_url:
+            return original_url.replace("/upload/", "/upload/fl_attachment/", 1)
+    return original_url
+
+
 async def upload_file_to_cloudinary(file: UploadFile) -> Dict[str, Any]:
     """
     上傳圖片或 PDF 檔案至 Cloudinary 並回傳公開安全網址與縮圖網址

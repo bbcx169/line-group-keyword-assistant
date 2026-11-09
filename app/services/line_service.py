@@ -11,7 +11,10 @@ from linebot.v3.messaging import (
 )
 from app.config import get_settings
 from app.models import KeywordRule, MatchType, ReplyType
-from app.services.cloudinary_service import build_preview_image_url
+from app.services.cloudinary_service import (
+    build_attachment_download_url,
+    build_preview_image_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +103,9 @@ def build_line_reply_messages(rule: KeywordRule):
         return [TextMessage(text=rule.reply_content)]
 
     if rule.reply_type == ReplyType.pdf:
-        pdf_urls = "\n".join(lines)
-        text_body = f"📄 【{rule.keyword}】檔案連結：\n{pdf_urls}"
+        pdf_urls = [build_attachment_download_url(u) for u in lines]
+        pdf_links_text = "\n".join(pdf_urls)
+        text_body = f"📄 【{rule.keyword}】檔案下載連結：\n{pdf_links_text}"
         return [TextMessage(text=text_body)]
 
     # 預設純文字
