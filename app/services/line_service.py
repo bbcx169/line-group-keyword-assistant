@@ -50,38 +50,47 @@ def find_matching_rule(db: Session, message_text: str) -> Optional[KeywordRule]:
     return None
 
 
-def build_line_reply_message(rule: KeywordRule):
+def build_line_reply_messages(rule: KeywordRule):
     """
-    依據 KeywordRule 的 reply_type 組裝 LINE Messaging API 訊息物件：
+    依據 KeywordRule 的 reply_type 組裝 LINE Messaging API 訊息物件列表（最多 5 則）：
     - text: 純文字訊息 (TextMessage)
-    - image: 圖片訊息 (ImageMessage)，自動帶入原始圖與 Cloudinary 縮圖網址
-    - pdf: 文字訊息附上 Cloudinary PDF 檔案下載/預覽連結
+    - image: 圖片訊息 (ImageMessage)，支援單行或多行 URL（換行或逗號分隔，最多 5 張圖片）
+    - pdf: 文字訊息附上 Cloudinary PDF 檔案下載/預覽連結（支援多個連結）
     """
+    lines = [line.strip() for line in rule.reply_content.replace(",", "\n").splitlines() if line.strip()]
+
     if rule.reply_type == ReplyType.image:
-        original_url = rule.reply_content.strip()
-        preview_url = build_preview_image_url(original_url)
-        return ImageMessage(
-            original_content_url=original_url,
-            preview_image_url=preview_url,
-        )
+        image_messages = []
+        for img_url in lines[:5]:
+            preview_url = build_preview_image_url(img_url)
+            image_messages.append(
+                ImageMessage(
+                    original_content_url=img_url,
+                    preview_image_url=preview_url,
+                )
+            )
+        if image_messages:
+            return image_messages
+        # 防呆：若無解析到有效網址，退回文字訊息
+        return [TextMessage(text=rule.reply_content)]
 
     if rule.reply_type == ReplyType.pdf:
-        pdf_url = rule.reply_content.strip()
-        text_body = f"📄 【{rule.keyword}】檔案連結：\n{pdf_url}"
-        return TextMessage(text=text_body)
+        pdf_urls = "\n".join(lines)
+        text_body = f"📄 【{rule.keyword}】檔案連結：\n{pdf_urls}"
+        return [TextMessage(text=text_body)]
 
-    # 預設為純文字回覆 (ReplyType.text)
-    return TextMessage(text=rule.reply_content)
+    # 預設純文字
+    return [TextMessage(text=rule.reply_content)]
 
 
 def send_line_reply(reply_token: str, rule: KeywordRule) -> None:
-    """發送 LINE Reply Message"""
+    """發送 LINE Reply Message（單次最多發送 5 則訊息氣泡）"""
     settings = get_settings()
     if not settings.line_channel_access_token:
         logger.warning("尚未設定 LINE_CHANNEL_ACCESS_TOKEN，略過實際發送 Reply Message")
         return
 
-    message_obj = build_line_reply_message(rule)
+    messages = build_line_reply_messages(rule)
     configuration = Configuration(access_token=settings.line_channel_access_token)
 
     with ApiClient(configuration) as api_client:
@@ -89,6 +98,6 @@ def send_line_reply(reply_token: str, rule: KeywordRule) -> None:
         line_bot_api.reply_message_with_http_info(
             ReplyMessageRequest(
                 reply_token=reply_token,
-                messages=[message_obj],
+                messages=messages,
             )
         )

@@ -240,18 +240,18 @@
           <div class="flex items-center justify-between">
             <span class="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
               <i class="fa-solid fa-cloud-arrow-up text-blue-600"></i>
-              <span>上傳檔案至 Cloudinary（自動填入下方網址）</span>
+              <span>上傳檔案至 Cloudinary（支援多選檔案，自動追加網址）</span>
             </span>
             <span id="upload-status" class="text-xs text-emerald-600 font-medium"></span>
           </div>
-          <input id="media-file-input" type="file" accept="image/*,.pdf" onchange="uploadMediaFile(event)"
+          <input id="media-file-input" type="file" multiple accept="image/*,.pdf" onchange="uploadMediaFile(event)"
             class="block w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
         </div>
 
         <div>
           <label id="reply-content-label" class="block text-sm font-medium text-slate-700 mb-1">回覆內容 <span class="text-rose-500">*</span></label>
-          <textarea id="form-reply-content" rows="4" required placeholder="請輸入要自動回覆的文字，或貼上/上傳 Cloudinary 圖片與 PDF 網址"
-            class="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"></textarea>
+          <textarea id="form-reply-content" rows="4" required placeholder="純文字回覆；若是圖片或PDF可輸入多筆網址（一行一個網址，LINE 最多同時發送 5 張）"
+            class="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-xs"></textarea>
         </div>
 
         <div class="flex items-center gap-2">
@@ -510,38 +510,53 @@
       document.getElementById("keyword-modal").classList.add("hidden");
     }
 
-    // 上傳圖片或 PDF 到 Cloudinary
+    // 上傳圖片或 PDF 到 Cloudinary（支援多檔批次上傳）
     async function uploadMediaFile(event) {
-      const file = event.target.files[0];
-      if (!file) return;
+      const files = Array.from(event.target.files);
+      if (!files.length) return;
       const statusEl = document.getElementById("upload-status");
-      statusEl.textContent = "正在上傳至 Cloudinary...";
+      statusEl.textContent = `正在上傳 ${files.length} 個檔案至 Cloudinary...`;
 
-      const formData = new FormData();
-      formData.append("file", file);
+      let successUrls = [];
+      let isPdf = false;
 
-      try {
-        const res = await apiFetch("/api/upload", {
-          method: "POST",
-          body: formData,
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          statusEl.textContent = "";
-          showToast(data.detail || "上傳失敗", "error");
-          return;
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const formData = new FormData();
+        formData.append("file", file);
+        try {
+          const res = await apiFetch("/api/upload", {
+            method: "POST",
+            body: formData,
+          });
+          const data = await res.json();
+          if (res.ok) {
+            successUrls.push(data.url);
+            if (data.resource_type === "pdf") isPdf = true;
+          } else {
+            showToast(`${file.name} 上傳失敗: ${data.detail || ''}`, "error");
+          }
+        } catch (err) {
+          showToast(`${file.name} 上傳錯誤: ${err.message}`, "error");
         }
-        document.getElementById("form-reply-content").value = data.url;
-        if (data.resource_type === "pdf") {
+      }
+
+      event.target.value = "";
+      if (successUrls.length > 0) {
+        const contentEl = document.getElementById("form-reply-content");
+        const existing = contentEl.value.trim();
+        const joined = successUrls.join("\n");
+        contentEl.value = existing ? `${existing}\n${joined}` : joined;
+
+        if (isPdf) {
           document.getElementById("form-reply-type").value = "pdf";
         } else {
           document.getElementById("form-reply-type").value = "image";
         }
-        statusEl.textContent = "✓ 上傳成功，已自動帶入網址";
-        showToast("媒體檔案已上傳至 Cloudinary！");
-      } catch (err) {
+        statusEl.textContent = `✓ 成功上傳 ${successUrls.length} 個檔案！`;
+        showToast(`已成功上傳 ${successUrls.length} 個檔案至 Cloudinary！`);
+      } else {
         statusEl.textContent = "";
-        showToast(err.message || "上傳發生錯誤", "error");
       }
     }
 
