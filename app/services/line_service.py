@@ -16,12 +16,29 @@ from app.services.cloudinary_service import build_preview_image_url
 logger = logging.getLogger(__name__)
 
 
+def split_keywords(keyword_str: str) -> list[str]:
+    """將關鍵字欄位支援逗號、頓號、斜線、換行拆分成多個同義關鍵字"""
+    if not keyword_str:
+        return []
+    # 支援逗號(半形/全形)、頓號、斜線、直線或換行分隔
+    normalized = (
+        keyword_str.replace("，", ",")
+        .replace("、", ",")
+        .replace("/", ",")
+        .replace("|", ",")
+        .replace("\n", ",")
+    )
+    tokens = [k.strip() for k in normalized.split(",") if k.strip()]
+    return tokens if tokens else [keyword_str.strip()]
+
+
 def find_matching_rule(db: Session, message_text: str) -> Optional[KeywordRule]:
     """
     比對關鍵字規則：
     1. 只搜尋 is_active == True 的規則
-    2. 優先比對 exact（完全比對，不分首尾空白）
-    3. 若無命中 exact，再比對 contains（包含比對，依關鍵字長度由長至短優先）
+    2. 支援「多關鍵字/別名」：欄位若填寫「裁處基準、罰鍰、裁罰基準」，自動拆分逐一比對
+    3. 優先比對 exact（完全比對，輸入文字完全等於其中任一關鍵字）
+    4. 若無命中 exact，再比對 contains（包含比對，輸入文字中包含其中任一關鍵字，字數長者優先）
     """
     if not message_text:
         return None
@@ -36,15 +53,23 @@ def find_matching_rule(db: Session, message_text: str) -> Optional[KeywordRule]:
 
     # 1. 完全比對 (exact)
     for rule in active_rules:
-        if rule.match_type == MatchType.exact and rule.keyword == cleaned_text:
-            return rule
+        if rule.match_type == MatchType.exact:
+            aliases = split_keywords(rule.keyword)
+            if cleaned_text in aliases:
+                return rule
 
-    # 2. 包含比對 (contains) - 依關鍵字長度由長至短排序，確保較具體的關鍵字優先觸發
-    contains_rules = [r for r in active_rules if r.match_type == MatchType.contains]
-    contains_rules.sort(key=lambda r: len(r.keyword), reverse=True)
+    # 2. 包含比對 (contains) - 依各關鍵字長度由長至短排序，避免短詞誤攔截長詞
+    contains_candidates = []
+    for rule in active_rules:
+        if rule.match_type == MatchType.contains:
+            aliases = split_keywords(rule.keyword)
+            for alias in aliases:
+                contains_candidates.append((alias, rule))
 
-    for rule in contains_rules:
-        if rule.keyword in cleaned_text:
+    contains_candidates.sort(key=lambda item: len(item[0]), reverse=True)
+
+    for alias, rule in contains_candidates:
+        if alias in cleaned_text:
             return rule
 
     return None
